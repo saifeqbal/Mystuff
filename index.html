@@ -1,0 +1,1214 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VisionDetect AI — Real-Time Object Detection</title>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- TensorFlow.js & COCO-SSD Model via jsDelivr -->
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@4.20.0/dist/tf.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd@2.2.3/dist/coco-ssd.min.js"></script>
+    <!-- Google Fonts: Inter & JetBrains Mono -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: #070b14;
+            color: #e2e8f0;
+            overflow-x: hidden;
+        }
+        .mono {
+            font-family: 'JetBrains Mono', monospace;
+        }
+        .glass {
+            background: rgba(15, 23, 42, 0.82);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(148, 163, 184, 0.14);
+        }
+        /* Custom scrollbar */
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        ::-webkit-scrollbar-track {
+            background: rgba(15, 23, 42, 0.5);
+        }
+        ::-webkit-scrollbar-thumb {
+            background: rgba(56, 189, 248, 0.35);
+            border-radius: 3px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: rgba(56, 189, 248, 0.65);
+        }
+        /* Custom range slider */
+        input[type=range] {
+            -webkit-appearance: none;
+            background: transparent;
+        }
+        input[type=range]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            height: 15px;
+            width: 15px;
+            border-radius: 50%;
+            background: #38bdf8;
+            cursor: pointer;
+            margin-top: -5px;
+            box-shadow: 0 0 10px rgba(56, 189, 248, 0.75);
+            transition: transform 0.15s ease;
+        }
+        input[type=range]::-webkit-slider-thumb:hover {
+            transform: scale(1.18);
+        }
+        input[type=range]::-webkit-slider-runnable-track {
+            width: 100%;
+            height: 5px;
+            cursor: pointer;
+            background: #1e293b;
+            border-radius: 3px;
+        }
+        @keyframes pulse-ring {
+            0% { transform: scale(0.85); opacity: 0.9; }
+            70% { transform: scale(1.6); opacity: 0; }
+            100% { transform: scale(1.6); opacity: 0; }
+        }
+        .pulse-dot::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            border-radius: 9999px;
+            background: inherit;
+            animation: pulse-ring 1.6s cubic-bezier(0.215, 0.61, 0.355, 1) infinite;
+        }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col">
+
+    <!-- Top Header Bar -->
+    <header class="glass sticky top-0 z-30 border-b border-slate-800/90 px-4 py-3">
+        <div class="max-w-7xl mx-auto flex flex-wrap items-center justify-between gap-3">
+            <!-- Brand Title -->
+            <div class="flex items-center gap-2.5">
+                <div class="w-9 h-9 rounded-xl bg-gradient-to-br from-sky-500 to-indigo-600 flex items-center justify-center shadow-lg shadow-sky-500/20">
+                    <svg class="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path>
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"></path>
+                    </svg>
+                </div>
+                <div>
+                    <h1 class="text-base sm:text-lg font-bold tracking-tight text-white leading-none">
+                        VisionDetect <span class="text-sky-400">AI</span>
+                    </h1>
+                    <p class="text-[11px] text-slate-400 mt-0.5">COCO-SSD Real-Time Computer Vision</p>
+                </div>
+            </div>
+
+            <!-- Live Status Badges & Telemetry -->
+            <div class="flex flex-wrap items-center gap-2 sm:gap-3">
+                <!-- Model Status Badge -->
+                <div id="model-status-badge" class="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs font-medium">
+                    <span id="model-status-dot" class="relative w-2 h-2 rounded-full bg-amber-400 pulse-dot"></span>
+                    <span id="model-status-text">Loading Model...</span>
+                </div>
+
+                <!-- TFJS Backend Badge -->
+                <div class="px-2.5 py-1.5 rounded-xl bg-slate-900 border border-slate-800 text-xs text-slate-300 flex items-center gap-1.5">
+                    <span class="text-slate-500">Backend:</span>
+                    <span id="tf-backend" class="mono font-semibold text-indigo-400 uppercase">INIT</span>
+                </div>
+
+                <!-- FPS & Latency Counter -->
+                <div class="px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-800 text-xs flex items-center gap-2.5 mono">
+                    <div>
+                        <span class="text-slate-500">FPS:</span>
+                        <span id="fps-counter" class="font-semibold text-emerald-400">0</span>
+                    </div>
+                    <span class="text-slate-700">|</span>
+                    <div>
+                        <span class="text-slate-500">Latency:</span>
+                        <span id="latency-counter" class="font-semibold text-sky-400">0 ms</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Dashboard Layout -->
+    <main class="flex-1 max-w-7xl w-full mx-auto p-3 sm:p-5 grid grid-cols-1 lg:grid-cols-12 gap-4 sm:gap-5">
+
+        <!-- Left / Center Viewport Column (7 cols on lg) -->
+        <section class="lg:col-span-7 xl:col-span-8 flex flex-col gap-4">
+
+            <!-- Mode Selector Tabs & Action Toolbar -->
+            <div class="glass rounded-2xl p-2 flex flex-wrap items-center justify-between gap-2">
+                <div class="flex items-center gap-1.5 bg-slate-950/70 p-1 rounded-xl border border-slate-800/80">
+                    <button id="tab-camera" class="px-3.5 py-2 rounded-lg text-xs sm:text-sm font-semibold bg-sky-600 text-white shadow transition flex items-center gap-2">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"></path></svg>
+                        Live Camera
+                    </button>
+                    <button id="tab-upload" class="px-3.5 py-2 rounded-lg text-xs sm:text-sm font-semibold text-slate-400 hover:text-white hover:bg-slate-800/60 transition flex items-center gap-2">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
+                        Image Upload
+                    </button>
+                </div>
+
+                <!-- Camera Specific Controls -->
+                <div id="camera-toolbar" class="flex flex-wrap items-center gap-2">
+                    <button id="btn-toggle-cam" disabled class="px-3.5 py-2 rounded-xl text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 disabled:cursor-not-allowed text-white shadow transition flex items-center gap-1.5">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                        <span id="btn-toggle-cam-text">Start Camera</span>
+                    </button>
+                    <button id="btn-switch-cam" title="Switch Front/Back Camera" class="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 transition">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
+                    </button>
+                    <button id="btn-snapshot" title="Download Annotated PNG Snapshot" class="px-3 py-2 rounded-xl text-xs font-semibold bg-indigo-600/80 hover:bg-indigo-500 text-white border border-indigo-400/30 transition flex items-center gap-1.5">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 13a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
+                        Snapshot
+                    </button>
+                </div>
+
+                <!-- Image Upload Specific Controls -->
+                <div id="upload-toolbar" class="hidden flex flex-wrap items-center gap-2">
+                    <label for="file-input" class="cursor-pointer px-3.5 py-2 rounded-xl text-xs font-semibold bg-sky-600 hover:bg-sky-500 text-white shadow transition flex items-center gap-1.5">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"></path></svg>
+                        Choose Image
+                    </label>
+                    <input id="file-input" type="file" accept="image/*" class="hidden">
+                    <button id="btn-download-img" class="px-3 py-2 rounded-xl text-xs font-semibold bg-indigo-600/80 hover:bg-indigo-500 text-white border border-indigo-400/30 transition flex items-center gap-1.5">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
+                        Save PNG
+                    </button>
+                </div>
+            </div>
+
+            <!-- Alert / Error Banner (Non-blocking replacement for alert()) -->
+            <div id="alert-banner" class="hidden rounded-xl p-3 bg-rose-950/70 border border-rose-500/40 text-rose-200 text-xs flex items-center justify-between gap-3">
+                <div class="flex items-center gap-2">
+                    <svg class="w-4 h-4 text-rose-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                    <span id="alert-message">Error message</span>
+                </div>
+                <button id="btn-close-alert" class="text-rose-300 hover:text-white font-bold px-1.5">✕</button>
+            </div>
+
+            <!-- Main Detection Canvas Stage -->
+            <div id="stage-container" class="glass rounded-2xl relative overflow-hidden flex items-center justify-center min-h-[340px] sm:min-h-[460px] lg:min-h-[520px] bg-slate-950/90 border border-slate-800 shadow-2xl">
+
+                <!-- Live Camera Video Element -->
+                <video id="webcam-video" playsinline muted class="w-full h-full max-h-[68vh] object-contain hidden"></video>
+
+                <!-- Uploaded / Sample Image Element -->
+                <img id="source-image" alt="Detection Source" class="w-full h-full max-h-[68vh] object-contain hidden">
+
+                <!-- Perfectly Aligned Bounding Box Overlay Canvas -->
+                <canvas id="overlay-canvas" class="absolute inset-0 w-full h-full pointer-events-none"></canvas>
+
+                <!-- Empty State / Dropzone Overlay -->
+                <div id="empty-state" class="p-6 text-center max-w-md mx-auto flex flex-col items-center gap-3 z-10">
+                    <div class="w-14 h-14 rounded-2xl bg-slate-900 border border-slate-800 flex items-center justify-center text-sky-400 shadow-inner">
+                        <svg id="empty-icon-cam" class="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M15 10l4.553-2.276A1 1 0 0121 8.618v6.764a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"></path></svg>
+                        <svg id="empty-icon-img" class="w-7 h-7 hidden" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
+                    </div>
+                    <h2 id="empty-title" class="text-base font-semibold text-white">Camera Standby</h2>
+                    <p id="empty-desc" class="text-xs text-slate-400 leading-relaxed">
+                        Click <strong class="text-emerald-400">Start Camera</strong> above once the COCO-SSD model is ready, or switch to <strong class="text-sky-400">Image Upload</strong> to analyze photos & built-in scenes.
+                    </p>
+                </div>
+
+                <!-- Drag-and-Drop Highlight Overlay -->
+                <div id="drop-overlay" class="hidden absolute inset-2 rounded-xl border-2 border-dashed border-sky-400 bg-sky-950/80 z-20 flex flex-col items-center justify-center text-sky-200 pointer-events-none">
+                    <svg class="w-10 h-10 mb-2 text-sky-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path></svg>
+                    <p class="text-sm font-semibold">Drop image here to run COCO-SSD detection</p>
+                </div>
+            </div>
+
+            <!-- Built-in Sample Scenes Bar (Visible in Image Upload Mode) -->
+            <div id="sample-scenes-bar" class="hidden glass rounded-2xl p-3.5 space-y-2.5">
+                <div class="flex items-center justify-between">
+                    <span class="text-xs font-semibold uppercase tracking-wider text-slate-400">Offline Built-In Sample Scenes (Zero-CORS)</span>
+                    <span class="text-[11px] text-slate-500">Click any scene to test model</span>
+                </div>
+                <div class="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                    <button data-sample="street" class="sample-btn p-2.5 rounded-xl bg-slate-900/80 hover:bg-slate-800 border border-slate-800 hover:border-sky-500/50 text-left transition flex items-center gap-3">
+                        <span class="w-9 h-9 rounded-lg bg-sky-500/15 text-sky-400 flex items-center justify-center text-lg shrink-0">🚗</span>
+                        <div>
+                            <div class="text-xs font-semibold text-slate-200">Urban Crosswalk</div>
+                            <div class="text-[10px] text-slate-400">Car, Person, Traffic Light</div>
+                        </div>
+                    </button>
+                    <button data-sample="desk" class="sample-btn p-2.5 rounded-xl bg-slate-900/80 hover:bg-slate-800 border border-slate-800 hover:border-sky-500/50 text-left transition flex items-center gap-3">
+                        <span class="w-9 h-9 rounded-lg bg-indigo-500/15 text-indigo-400 flex items-center justify-center text-lg shrink-0">💻</span>
+                        <div>
+                            <div class="text-xs font-semibold text-slate-200">Developer Desk</div>
+                            <div class="text-[10px] text-slate-400">Laptop, Cup, Cell Phone</div>
+                        </div>
+                    </button>
+                    <button data-sample="park" class="sample-btn p-2.5 rounded-xl bg-slate-900/80 hover:bg-slate-800 border border-slate-800 hover:border-sky-500/50 text-left transition flex items-center gap-3">
+                        <span class="w-9 h-9 rounded-lg bg-emerald-500/15 text-emerald-400 flex items-center justify-center text-lg shrink-0">🐕</span>
+                        <div>
+                            <div class="text-xs font-semibold text-slate-200">Park & Pets</div>
+                            <div class="text-[10px] text-slate-400">Dog, Person, Bicycle</div>
+                        </div>
+                    </button>
+                </div>
+            </div>
+        </section>
+
+        <!-- Right Sidebar: Controls & Live Detections Telemetry (5 cols on lg) -->
+        <aside class="lg:col-span-5 xl:col-span-4 flex flex-col gap-4">
+
+            <!-- Model & Overlay Controls Panel -->
+            <div class="glass rounded-2xl p-4 space-y-4">
+                <div class="flex items-center justify-between border-b border-slate-800 pb-2.5">
+                    <h2 class="text-xs font-bold uppercase tracking-wider text-slate-300 flex items-center gap-2">
+                        <svg class="w-4 h-4 text-sky-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4"></path></svg>
+                        Neural Network & HUD Controls
+                    </h2>
+                </div>
+
+                <!-- Model Backbone Selector -->
+                <div class="space-y-1.5">
+                    <label for="backbone-select" class="block text-xs font-medium text-slate-400">COCO-SSD Backbone Architecture</label>
+                    <div class="flex gap-2">
+                        <select id="backbone-select" class="flex-1 bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-200 focus:outline-none focus:border-sky-500">
+                            <option value="lite_mobilenet_v2">Lite MobileNet V2 (Fast)</option>
+                            <option value="mobilenet_v2">MobileNet V2 (Accurate)</option>
+                        </select>
+                        <button id="btn-reload-model" class="px-3 py-2 rounded-xl bg-slate-800 hover:bg-sky-600 text-xs font-semibold text-slate-200 hover:text-white border border-slate-700 transition">
+                            Reload
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Confidence Threshold Slider -->
+                <div class="space-y-1.5">
+                    <div class="flex justify-between items-center text-xs">
+                        <label for="slider-confidence" class="font-medium text-slate-300">Confidence Threshold</label>
+                        <span id="val-confidence" class="mono font-semibold text-sky-400">50%</span>
+                    </div>
+                    <input id="slider-confidence" type="range" min="10" max="95" step="1" value="50" class="w-full">
+                </div>
+
+                <!-- Max Detections Slider -->
+                <div class="space-y-1.5">
+                    <div class="flex justify-between items-center text-xs">
+                        <label for="slider-max-det" class="font-medium text-slate-300">Max Detections</label>
+                        <span id="val-max-det" class="mono font-semibold text-indigo-400">15</span>
+                    </div>
+                    <input id="slider-max-det" type="range" min="1" max="25" step="1" value="15" class="w-full">
+                </div>
+
+                <!-- Visual Overlays & Voice Toggles -->
+                <div class="grid grid-cols-1 gap-2 pt-1">
+                    <label class="flex items-center justify-between p-2.5 rounded-xl bg-slate-900/75 border border-slate-800 cursor-pointer hover:border-slate-700">
+                        <span class="text-xs font-medium text-slate-200">Show Labels & Confidence %</span>
+                        <input id="chk-labels" type="checkbox" checked class="w-4 h-4 accent-sky-500 rounded">
+                    </label>
+
+                    <label class="flex items-center justify-between p-2.5 rounded-xl bg-slate-900/75 border border-slate-800 cursor-pointer hover:border-slate-700">
+                        <span class="text-xs font-medium text-slate-200">HUD Corner Brackets Style</span>
+                        <input id="chk-brackets" type="checkbox" checked class="w-4 h-4 accent-sky-500 rounded">
+                    </label>
+
+                    <label class="flex items-center justify-between p-2.5 rounded-xl bg-slate-900/75 border border-slate-800 cursor-pointer hover:border-slate-700">
+                        <div>
+                            <div class="text-xs font-medium text-slate-200">Voice Announcement (TTS)</div>
+                            <div class="text-[10px] text-slate-400">Announces newly detected object classes</div>
+                        </div>
+                        <input id="chk-voice" type="checkbox" class="w-4 h-4 accent-emerald-500 rounded">
+                    </label>
+                </div>
+            </div>
+
+            <!-- Live Detections Telemetry Panel -->
+            <div class="glass rounded-2xl p-4 flex-1 flex flex-col gap-3 min-h-[280px]">
+                <div class="flex items-center justify-between border-b border-slate-800 pb-2.5">
+                    <h2 class="text-xs font-bold uppercase tracking-wider text-slate-300 flex items-center gap-2">
+                        <svg class="w-4 h-4 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path></svg>
+                        Live Detections Telemetry
+                    </h2>
+                    <span class="px-2.5 py-0.5 rounded-full bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 text-xs font-bold mono">
+                        Total: <span id="total-count">0</span>
+                    </span>
+                </div>
+
+                <!-- Grouped Class Summary Pills -->
+                <div id="summary-pills" class="flex flex-wrap gap-1.5 min-h-[28px]">
+                    <span class="text-xs text-slate-500 italic">No objects detected yet...</span>
+                </div>
+
+                <!-- Detailed Detections Scrollable List -->
+                <div id="detections-list" class="flex-1 overflow-y-auto space-y-2 max-h-[340px] pr-1">
+                    <!-- Populated dynamically -->
+                </div>
+            </div>
+        </aside>
+    </main>
+
+    <script>
+        /**
+         * ============================================================================
+         * VISIONDETECT AI — REAL-TIME COCO-SSD OBJECT DETECTION ENGINE
+         * ============================================================================
+         */
+
+        // Application State
+        const state = {
+            model: null,
+            backbone: 'lite_mobilenet_v2',
+            mode: 'camera', // 'camera' | 'upload'
+            isCameraRunning: false,
+            facingMode: 'environment', // 'environment' | 'user'
+            stream: null,
+            rafId: null,
+            isDetecting: false,
+            confidenceThreshold: 0.50,
+            maxDetections: 15,
+            showLabels: true,
+            hudBrackets: true,
+            voiceEnabled: false,
+            lastPredictions: [],
+            // FPS & Speech Cooldown Tracking
+            frameCount: 0,
+            lastFpsTime: performance.now(),
+            spokenClasses: new Map() // className -> timestamp
+        };
+
+        // DOM Elements
+        const els = {
+            modelStatusBadge: document.getElementById('model-status-badge'),
+            modelStatusDot: document.getElementById('model-status-dot'),
+            modelStatusText: document.getElementById('model-status-text'),
+            tfBackend: document.getElementById('tf-backend'),
+            fpsCounter: document.getElementById('fps-counter'),
+            latencyCounter: document.getElementById('latency-counter'),
+
+            tabCamera: document.getElementById('tab-camera'),
+            tabUpload: document.getElementById('tab-upload'),
+            cameraToolbar: document.getElementById('camera-toolbar'),
+            uploadToolbar: document.getElementById('upload-toolbar'),
+            sampleScenesBar: document.getElementById('sample-scenes-bar'),
+
+            btnToggleCam: document.getElementById('btn-toggle-cam'),
+            btnToggleCamText: document.getElementById('btn-toggle-cam-text'),
+            btnSwitchCam: document.getElementById('btn-switch-cam'),
+            btnSnapshot: document.getElementById('btn-snapshot'),
+            fileInput: document.getElementById('file-input'),
+            btnDownloadImg: document.getElementById('btn-download-img'),
+
+            alertBanner: document.getElementById('alert-banner'),
+            alertMessage: document.getElementById('alert-message'),
+            btnCloseAlert: document.getElementById('btn-close-alert'),
+
+            stageContainer: document.getElementById('stage-container'),
+            video: document.getElementById('webcam-video'),
+            sourceImg: document.getElementById('source-image'),
+            canvas: document.getElementById('overlay-canvas'),
+            emptyState: document.getElementById('empty-state'),
+            emptyIconCam: document.getElementById('empty-icon-cam'),
+            emptyIconImg: document.getElementById('empty-icon-img'),
+            emptyTitle: document.getElementById('empty-title'),
+            emptyDesc: document.getElementById('empty-desc'),
+            dropOverlay: document.getElementById('drop-overlay'),
+
+            backboneSelect: document.getElementById('backbone-select'),
+            btnReloadModel: document.getElementById('btn-reload-model'),
+            sliderConfidence: document.getElementById('slider-confidence'),
+            valConfidence: document.getElementById('val-confidence'),
+            sliderMaxDet: document.getElementById('slider-max-det'),
+            valMaxDet: document.getElementById('val-max-det'),
+            chkLabels: document.getElementById('chk-labels'),
+            chkBrackets: document.getElementById('chk-brackets'),
+            chkVoice: document.getElementById('chk-voice'),
+
+            totalCount: document.getElementById('total-count'),
+            summaryPills: document.getElementById('summary-pills'),
+            detectionsList: document.getElementById('detections-list')
+        };
+
+        const ctx = els.canvas.getContext('2d');
+
+        // --- 1. DETERMINISTIC COLOR GENERATOR PER OBJECT CLASS ---
+        function getClassColor(className) {
+            let hash = 0;
+            for (let i = 0; i < className.length; i++) {
+                hash = className.charCodeAt(i) + ((hash << 5) - hash);
+            }
+            const hue = Math.abs(hash * 137.508) % 360;
+            return {
+                hsl: `hsl(${Math.round(hue)}, 88%, 58%)`,
+                hslaBg: `hsla(${Math.round(hue)}, 88%, 58%, 0.16)`,
+                hslaBorder: `hsla(${Math.round(hue)}, 88%, 58%, 0.45)`
+            };
+        }
+
+        // --- 2. NON-BLOCKING ALERT HELPER ---
+        function showError(msg) {
+            els.alertMessage.textContent = msg;
+            els.alertBanner.classList.remove('hidden');
+        }
+        function hideError() {
+            els.alertBanner.classList.add('hidden');
+        }
+
+        // --- 3. TENSORFLOW.JS & COCO-SSD MODEL LOADING ---
+        async function loadObjectDetectionModel() {
+            try {
+                setModelStatus('loading', 'Loading Model...');
+                els.btnToggleCam.disabled = true;
+                els.btnReloadModel.disabled = true;
+
+                await tf.ready();
+                els.tfBackend.textContent = tf.getBackend() || 'WEBGL';
+
+                // Load COCO-SSD with selected MobileNet backbone
+                state.model = await cocoSsd.load({ base: state.backbone });
+
+                setModelStatus('ready', 'Model Ready');
+                els.btnToggleCam.disabled = false;
+                els.btnReloadModel.disabled = false;
+
+                // Re-run detection if an image is currently loaded in upload mode
+                if (state.mode === 'upload' && !els.sourceImg.classList.contains('hidden')) {
+                    await detectOnStaticImage();
+                }
+            } catch (err) {
+                console.error('Model load error:', err);
+                setModelStatus('error', 'Model Error');
+                els.btnReloadModel.disabled = false;
+                showError(`Failed to load COCO-SSD model: ${err.message}. Check your internet connection and click Reload.`);
+            }
+        }
+
+        function setModelStatus(status, text) {
+            els.modelStatusText.textContent = text;
+            if (status === 'loading') {
+                els.modelStatusBadge.className = 'flex items-center gap-2 px-3 py-1.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs font-medium';
+                els.modelStatusDot.className = 'relative w-2 h-2 rounded-full bg-amber-400 pulse-dot';
+            } else if (status === 'ready') {
+                els.modelStatusBadge.className = 'flex items-center gap-2 px-3 py-1.5 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-xs font-medium';
+                els.modelStatusDot.className = 'relative w-2 h-2 rounded-full bg-emerald-400';
+            } else {
+                els.modelStatusBadge.className = 'flex items-center gap-2 px-3 py-1.5 rounded-xl bg-rose-500/10 border border-rose-500/30 text-rose-300 text-xs font-medium';
+                els.modelStatusDot.className = 'relative w-2 h-2 rounded-full bg-rose-400';
+            }
+        }
+
+        // --- 4. EXACT OBJECT-CONTAIN COORDINATE MAPPING ---
+        /**
+         * Computes the rendered rectangle of a media element (<video> or <img>)
+         * inside the stage container when styled with `object-contain`, ensuring
+         * bounding boxes never drift on mobile portrait vs desktop landscape.
+         */
+        function getRenderedMediaRect(mediaEl) {
+            const containerRect = els.stageContainer.getBoundingClientRect();
+            const cw = containerRect.width;
+            const ch = containerRect.height;
+
+            const intrinsicW = mediaEl.videoWidth || mediaEl.naturalWidth || cw;
+            const intrinsicH = mediaEl.videoHeight || mediaEl.naturalHeight || ch;
+
+            if (!intrinsicW || !intrinsicH) {
+                return { offsetX: 0, offsetY: 0, drawW: cw, drawH: ch, scaleX: 1, scaleY: 1 };
+            }
+
+            const mediaRatio = intrinsicW / intrinsicH;
+            const containerRatio = cw / ch;
+
+            let drawW, drawH, offsetX, offsetY;
+            if (mediaRatio > containerRatio) {
+                drawW = cw;
+                drawH = cw / mediaRatio;
+                offsetX = 0;
+                offsetY = (ch - drawH) / 2;
+            } else {
+                drawH = ch;
+                drawW = ch * mediaRatio;
+                offsetX = (cw - drawW) / 2;
+                offsetY = 0;
+            }
+
+            return {
+                offsetX,
+                offsetY,
+                drawW,
+                drawH,
+                scaleX: drawW / intrinsicW,
+                scaleY: drawH / intrinsicH
+            };
+        }
+
+        function syncCanvasResolution() {
+            const rect = els.stageContainer.getBoundingClientRect();
+            const dpr = window.devicePixelRatio || 1;
+            if (els.canvas.width !== Math.round(rect.width * dpr) || els.canvas.height !== Math.round(rect.height * dpr)) {
+                els.canvas.width = Math.round(rect.width * dpr);
+                els.canvas.height = Math.round(rect.height * dpr);
+            }
+            ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+            return { width: rect.width, height: rect.height };
+        }
+
+        // --- 5. BOUNDING BOX & HUD OVERLAY RENDERER ---
+        function renderDetections(predictions, mediaEl) {
+            const { width, height } = syncCanvasResolution();
+            ctx.clearRect(0, 0, width, height);
+
+            // Filter by live confidence threshold & max detections
+            const filtered = predictions
+                .filter(p => p.score >= state.confidenceThreshold)
+                .slice(0, state.maxDetections);
+
+            updateTelemetryUI(filtered);
+            handleVoiceAnnouncements(filtered);
+
+            if (!mediaEl || filtered.length === 0) return;
+
+            const { offsetX, offsetY, scaleX, scaleY } = getRenderedMediaRect(mediaEl);
+
+            filtered.forEach(pred => {
+                const [rawX, rawY, rawW, rawH] = pred.bbox;
+                const x = offsetX + rawX * scaleX;
+                const y = offsetY + rawY * scaleY;
+                const w = rawW * scaleX;
+                const h = rawH * scaleY;
+
+                const color = getClassColor(pred.class);
+
+                // Subtle translucent fill
+                ctx.fillStyle = color.hslaBg;
+                ctx.fillRect(x, y, w, h);
+
+                if (state.hudBrackets) {
+                    // Thin outer guide border
+                    ctx.strokeStyle = color.hslaBorder;
+                    ctx.lineWidth = 1;
+                    ctx.strokeRect(x, y, w, h);
+
+                    // Bold sci-fi HUD corner brackets
+                    const cornerLen = Math.max(10, Math.min(24, Math.min(w, h) * 0.22));
+                    ctx.strokeStyle = color.hsl;
+                    ctx.lineWidth = 3;
+                    ctx.lineCap = 'square';
+
+                    ctx.beginPath();
+                    // Top-Left
+                    ctx.moveTo(x, y + cornerLen);
+                    ctx.lineTo(x, y);
+                    ctx.lineTo(x + cornerLen, y);
+                    // Top-Right
+                    ctx.moveTo(x + w - cornerLen, y);
+                    ctx.lineTo(x + w, y);
+                    ctx.lineTo(x + w, y + cornerLen);
+                    // Bottom-Right
+                    ctx.moveTo(x + w, y + h - cornerLen);
+                    ctx.lineTo(x + w, y + h);
+                    ctx.lineTo(x + w - cornerLen, y + h);
+                    // Bottom-Left
+                    ctx.moveTo(x + cornerLen, y + h);
+                    ctx.lineTo(x, y + h);
+                    ctx.lineTo(x, y + h - cornerLen);
+                    ctx.stroke();
+                } else {
+                    // Classic solid bounding box
+                    ctx.strokeStyle = color.hsl;
+                    ctx.lineWidth = 2.5;
+                    ctx.strokeRect(x, y, w, h);
+                }
+
+                // Class Label & Confidence Pill
+                if (state.showLabels) {
+                    const confPct = Math.round(pred.score * 100);
+                    const labelText = `${pred.class.toUpperCase()} ${confPct}%`;
+                    ctx.font = '600 12px "JetBrains Mono", monospace';
+                    const textMetrics = ctx.measureText(labelText);
+                    const padX = 7;
+                    const pillH = 22;
+                    const pillW = textMetrics.width + padX * 2;
+
+                    // Keep pill inside viewport if box is near top edge
+                    const pillY = y - pillH >= 4 ? y - pillH : y + 2;
+                    const pillX = Math.max(2, Math.min(width - pillW - 2, x));
+
+                    ctx.fillStyle = color.hsl;
+                    ctx.beginPath();
+                    ctx.roundRect(pillX, pillY, pillW, pillH, 5);
+                    ctx.fill();
+
+                    ctx.fillStyle = '#060913';
+                    ctx.fillText(labelText, pillX + padX, pillY + 15);
+                }
+            });
+        }
+
+        // --- 6. TELEMETRY SIDEBAR & VOICE ANNOUNCEMENTS ---
+        function updateTelemetryUI(filtered) {
+            els.totalCount.textContent = filtered.length;
+
+            if (filtered.length === 0) {
+                els.summaryPills.innerHTML = `<span class="text-xs text-slate-500 italic">No objects above ${Math.round(state.confidenceThreshold * 100)}% confidence...</span>`;
+                els.detectionsList.innerHTML = '';
+                return;
+            }
+
+            // Group counts by class name
+            const counts = {};
+            filtered.forEach(p => {
+                counts[p.class] = (counts[p.class] || 0) + 1;
+            });
+
+            els.summaryPills.innerHTML = Object.entries(counts)
+                .sort((a, b) => b[1] - a[1])
+                .map(([cls, count]) => {
+                    const c = getClassColor(cls);
+                    return `
+                        <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold" style="background:${c.hslaBg}; border:1px solid ${c.hslaBorder}; color:${c.hsl};">
+                            <span class="w-2 h-2 rounded-full" style="background:${c.hsl};"></span>
+                            ${cls} ×${count}
+                        </span>
+                    `;
+                }).join('');
+
+            // Detailed detection cards
+            els.detectionsList.innerHTML = filtered.map((p, idx) => {
+                const c = getClassColor(p.class);
+                const pct = Math.round(p.score * 100);
+                const coords = p.bbox.map(v => Math.round(v)).join(', ');
+                return `
+                    <div class="p-2.5 rounded-xl bg-slate-900/80 border border-slate-800/90 space-y-1.5">
+                        <div class="flex items-center justify-between">
+                            <div class="flex items-center gap-2">
+                                <span class="text-[11px] mono text-slate-500">#${idx + 1}</span>
+                                <span class="text-xs font-bold capitalize text-white">${p.class}</span>
+                            </div>
+                            <span class="text-xs font-bold mono" style="color:${c.hsl};">${pct}%</span>
+                        </div>
+                        <div class="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden">
+                            <div class="h-full rounded-full transition-all duration-150" style="width:${pct}%; background:${c.hsl};"></div>
+                        </div>
+                        <div class="text-[10px] mono text-slate-400 flex justify-between">
+                            <span>BBox [x, y, w, h]:</span>
+                            <span class="text-slate-300">[${coords}]</span>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function handleVoiceAnnouncements(filtered) {
+            if (!state.voiceEnabled || !('speechSynthesis' in window) || filtered.length === 0) return;
+
+            const now = Date.now();
+            const COOLDOWN_MS = 6000;
+
+            for (const pred of filtered) {
+                const lastSpoken = state.spokenClasses.get(pred.class) || 0;
+                if (now - lastSpoken > COOLDOWN_MS) {
+                    state.spokenClasses.set(pred.class, now);
+                    const utterance = new SpeechSynthesisUtterance(pred.class);
+                    utterance.rate = 1.1;
+                    window.speechSynthesis.speak(utterance);
+                    break; // Announce one class at a time to prevent queue buildup
+                }
+            }
+        }
+
+        // --- 7. LIVE CAMERA STREAM & INFERENCE LOOP ---
+        async function startCamera() {
+            if (!state.model) {
+                showError('Please wait for the COCO-SSD model to finish loading.');
+                return;
+            }
+            hideError();
+            stopCamera();
+
+            try {
+                const constraints = {
+                    audio: false,
+                    video: {
+                        facingMode: state.facingMode,
+                        width: { ideal: 1280 },
+                        height: { ideal: 720 }
+                    }
+                };
+                state.stream = await navigator.mediaDevices.getUserMedia(constraints);
+                els.video.srcObject = state.stream;
+
+                await new Promise((resolve) => {
+                    els.video.onloadedmetadata = () => resolve();
+                });
+                await els.video.play();
+
+                state.isCameraRunning = true;
+                els.video.classList.remove('hidden');
+                els.sourceImg.classList.add('hidden');
+                els.emptyState.classList.add('hidden');
+
+                els.btnToggleCamText.textContent = 'Stop Camera';
+                els.btnToggleCam.className = 'px-3.5 py-2 rounded-xl text-xs font-semibold bg-rose-600 hover:bg-rose-500 text-white shadow transition flex items-center gap-1.5';
+
+                state.lastFpsTime = performance.now();
+                state.frameCount = 0;
+                runCameraDetectionLoop();
+            } catch (err) {
+                console.error('Camera error:', err);
+                showError(`Camera access denied or unavailable (${err.name}: ${err.message}). Try switching to Image Upload mode.`);
+            }
+        }
+
+        function stopCamera() {
+            state.isCameraRunning = false;
+            if (state.rafId) {
+                cancelAnimationFrame(state.rafId);
+                state.rafId = null;
+            }
+            if (state.stream) {
+                state.stream.getTracks().forEach(track => track.stop());
+                state.stream = null;
+            }
+            els.video.srcObject = null;
+            els.video.classList.add('hidden');
+
+            if (state.mode === 'camera') {
+                els.emptyState.classList.remove('hidden');
+                const { width, height } = syncCanvasResolution();
+                ctx.clearRect(0, 0, width, height);
+                els.fpsCounter.textContent = '0';
+                els.latencyCounter.textContent = '0 ms';
+            }
+
+            els.btnToggleCamText.textContent = 'Start Camera';
+            els.btnToggleCam.className = 'px-3.5 py-2 rounded-xl text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 text-white shadow transition flex items-center gap-1.5';
+        }
+
+        function runCameraDetectionLoop() {
+            if (!state.isCameraRunning) return;
+
+            const step = async () => {
+                if (!state.isCameraRunning) return;
+
+                if (els.video.readyState >= 2 && !state.isDetecting && state.model) {
+                    state.isDetecting = true;
+                    const t0 = performance.now();
+                    try {
+                        // Request up to 25 predictions so real-time slider adjustments work smoothly
+                        const predictions = await state.model.detect(els.video, 25, 0.10);
+                        const t1 = performance.now();
+
+                        state.lastPredictions = predictions;
+                        els.latencyCounter.textContent = `${Math.round(t1 - t0)} ms`;
+
+                        // Update FPS every 500ms
+                        state.frameCount++;
+                        if (t1 - state.lastFpsTime >= 500) {
+                            const fps = Math.round((state.frameCount * 1000) / (t1 - state.lastFpsTime));
+                            els.fpsCounter.textContent = fps;
+                            state.frameCount = 0;
+                            state.lastFpsTime = t1;
+                        }
+
+                        renderDetections(predictions, els.video);
+                    } catch (err) {
+                        console.error('Inference error:', err);
+                    } finally {
+                        state.isDetecting = false;
+                    }
+                }
+
+                state.rafId = requestAnimationFrame(step);
+            };
+
+            state.rafId = requestAnimationFrame(step);
+        }
+
+        // --- 8. STATIC IMAGE UPLOAD & OFFLINE SAMPLE SCENES ---
+        async function detectOnStaticImage() {
+            if (!state.model || els.sourceImg.classList.contains('hidden')) return;
+            hideError();
+
+            try {
+                const t0 = performance.now();
+                const predictions = await state.model.detect(els.sourceImg, 25, 0.10);
+                const t1 = performance.now();
+
+                state.lastPredictions = predictions;
+                els.latencyCounter.textContent = `${Math.round(t1 - t0)} ms`;
+                els.fpsCounter.textContent = 'STATIC';
+                renderDetections(predictions, els.sourceImg);
+            } catch (err) {
+                console.error('Static image detection error:', err);
+                showError(`Detection failed on image: ${err.message}`);
+            }
+        }
+
+        function loadImageSource(dataUrl) {
+            hideError();
+            stopCamera();
+            els.sourceImg.onload = async () => {
+                els.sourceImg.classList.remove('hidden');
+                els.emptyState.classList.add('hidden');
+                await detectOnStaticImage();
+            };
+            els.sourceImg.src = dataUrl;
+        }
+
+        /**
+         * Generates crisp, multi-object offline canvas scenes converted to Data URLs
+         * so sample buttons work 100% offline with zero external network or CORS issues.
+         */
+        function generateOfflineSampleScene(sceneType) {
+            const c = document.createElement('canvas');
+            c.width = 960;
+            c.height = 600;
+            const g = c.getContext('2d');
+
+            if (sceneType === 'street') {
+                // Sky & Urban Buildings
+                const sky = g.createLinearGradient(0, 0, 0, 360);
+                sky.addColorStop(0, '#38bdf8');
+                sky.addColorStop(1, '#bae6fd');
+                g.fillStyle = sky;
+                g.fillRect(0, 0, 960, 360);
+
+                // Buildings
+                g.fillStyle = '#475569';
+                g.fillRect(40, 90, 180, 270);
+                g.fillRect(720, 70, 200, 290);
+                g.fillStyle = '#64748b';
+                g.fillRect(240, 130, 160, 230);
+
+                // Asphalt Road & Crosswalk
+                g.fillStyle = '#1e293b';
+                g.fillRect(0, 360, 960, 240);
+                g.fillStyle = '#f8fafc';
+                for (let x = 80; x < 880; x += 110) {
+                    g.fillRect(x, 470, 65, 95);
+                }
+
+                // Traffic Light Pole
+                g.fillStyle = '#0f172a';
+                g.fillRect(760, 140, 14, 220);
+                g.beginPath();
+                g.roundRect(742, 110, 50, 115, 10);
+                g.fill();
+                g.fillStyle = '#ef4444'; g.beginPath(); g.arc(767, 135, 11, 0, Math.PI * 2); g.fill();
+                g.fillStyle = '#eab308'; g.beginPath(); g.arc(767, 167, 11, 0, Math.PI * 2); g.fill();
+                g.fillStyle = '#22c55e'; g.beginPath(); g.arc(767, 199, 11, 0, Math.PI * 2); g.fill();
+
+                // Detailed Car Silhouette
+                g.fillStyle = '#dc2626';
+                g.beginPath();
+                g.roundRect(140, 325, 310, 85, 18);
+                g.fill();
+                g.fillStyle = '#b91c1c';
+                g.beginPath();
+                g.roundRect(195, 275, 190, 60, 16);
+                g.fill();
+                // Windows
+                g.fillStyle = '#e0f2fe';
+                g.fillRect(210, 285, 72, 40);
+                g.fillRect(295, 285, 75, 40);
+                // Wheels
+                g.fillStyle = '#090d16';
+                g.beginPath(); g.arc(210, 412, 32, 0, Math.PI * 2); g.fill();
+                g.beginPath(); g.arc(380, 412, 32, 0, Math.PI * 2); g.fill();
+                g.fillStyle = '#94a3b8';
+                g.beginPath(); g.arc(210, 412, 14, 0, Math.PI * 2); g.fill();
+                g.beginPath(); g.arc(380, 412, 14, 0, Math.PI * 2); g.fill();
+
+                // Pedestrian (Person)
+                g.fillStyle = '#f59e0b'; // Jacket
+                g.beginPath(); g.roundRect(575, 290, 52, 85, 12); g.fill();
+                g.fillStyle = '#1d4ed8'; // Legs
+                g.fillRect(580, 375, 18, 75);
+                g.fillRect(604, 375, 18, 75);
+                g.fillStyle = '#fde68a'; // Head
+                g.beginPath(); g.arc(601, 265, 21, 0, Math.PI * 2); g.fill();
+            } else if (sceneType === 'desk') {
+                // Warm Office Wall & Wooden Desk
+                g.fillStyle = '#1e293b';
+                g.fillRect(0, 0, 960, 390);
+                g.fillStyle = '#78350f';
+                g.fillRect(0, 390, 960, 210);
+
+                // Laptop
+                g.fillStyle = '#334155';
+                g.beginPath(); g.roundRect(260, 180, 340, 210, 12); g.fill();
+                g.fillStyle = '#0ea5e9';
+                g.fillRect(276, 196, 308, 178);
+                // Code lines on laptop screen
+                g.fillStyle = '#e0f2fe';
+                for (let y = 215; y < 350; y += 22) {
+                    g.fillRect(295, y, 120 + (y % 90), 8);
+                }
+                // Laptop Keyboard Base
+                g.fillStyle = '#94a3b8';
+                g.beginPath();
+                g.moveTo(250, 390); g.lineTo(610, 390); g.lineTo(645, 435); g.lineTo(215, 435);
+                g.closePath(); g.fill();
+
+                // Coffee Cup
+                g.fillStyle = '#f8fafc';
+                g.beginPath(); g.roundRect(690, 345, 68, 82, 10); g.fill();
+                g.strokeStyle = '#f8fafc'; g.lineWidth = 8;
+                g.beginPath(); g.arc(760, 385, 18, -Math.PI / 2, Math.PI / 2); g.stroke();
+
+                // Smartphone
+                g.fillStyle = '#0f172a';
+                g.beginPath(); g.roundRect(120, 375, 65, 110, 10); g.fill();
+                g.fillStyle = '#38bdf8';
+                g.fillRect(126, 385, 53, 88);
+            } else {
+                // Park Sky & Grass
+                g.fillStyle = '#7dd3fc';
+                g.fillRect(0, 0, 960, 320);
+                g.fillStyle = '#15803d';
+                g.fillRect(0, 320, 960, 280);
+
+                // Sun & Trees
+                g.fillStyle = '#fde047';
+                g.beginPath(); g.arc(820, 95, 45, 0, Math.PI * 2); g.fill();
+                g.fillStyle = '#14532d';
+                g.beginPath(); g.arc(160, 220, 95, 0, Math.PI * 2); g.fill();
+                g.fillStyle = '#713f12';
+                g.fillRect(145, 290, 30, 80);
+
+                // Bicycle
+                g.strokeStyle = '#ef4444'; g.lineWidth = 7;
+                g.beginPath();
+                g.moveTo(560, 430); g.lineTo(630, 355); g.lineTo(725, 355); g.lineTo(675, 430); g.closePath();
+                g.moveTo(630, 355); g.lineTo(620, 325);
+                g.moveTo(725, 355); g.lineTo(755, 430);
+                g.stroke();
+                g.strokeStyle = '#0f172a'; g.lineWidth = 8;
+                g.beginPath(); g.arc(560, 430, 44, 0, Math.PI * 2); g.stroke();
+                g.beginPath(); g.arc(755, 430, 44, 0, Math.PI * 2); g.stroke();
+
+                // Dog
+                g.fillStyle = '#b45309';
+                g.beginPath(); g.roundRect(270, 375, 125, 65, 20); g.fill(); // Body
+                g.beginPath(); g.arc(400, 360, 28, 0, Math.PI * 2); g.fill(); // Head
+                g.fillRect(285, 435, 16, 48);
+                g.fillRect(365, 435, 16, 48);
+            }
+
+            return c.toDataURL('image/png');
+        }
+
+        // --- 9. EXPORT ANNOTATED SNAPSHOT AS PNG ---
+        function downloadAnnotatedPNG(filename) {
+            const mediaEl = state.mode === 'camera' ? els.video : els.sourceImg;
+            if (mediaEl.classList.contains('hidden')) {
+                showError('No active video frame or image available to capture.');
+                return;
+            }
+
+            const intrinsicW = mediaEl.videoWidth || mediaEl.naturalWidth;
+            const intrinsicH = mediaEl.videoHeight || mediaEl.naturalHeight;
+            if (!intrinsicW || !intrinsicH) return;
+
+            const exportCanvas = document.createElement('canvas');
+            exportCanvas.width = intrinsicW;
+            exportCanvas.height = intrinsicH;
+            const eCtx = exportCanvas.getContext('2d');
+
+            // Draw raw frame
+            eCtx.drawImage(mediaEl, 0, 0, intrinsicW, intrinsicH);
+
+            // Draw filtered bounding boxes scaled to intrinsic media dimensions
+            const filtered = state.lastPredictions
+                .filter(p => p.score >= state.confidenceThreshold)
+                .slice(0, state.maxDetections);
+
+            filtered.forEach(pred => {
+                const [x, y, w, h] = pred.bbox;
+                const color = getClassColor(pred.class);
+
+                eCtx.fillStyle = color.hslaBg;
+                eCtx.fillRect(x, y, w, h);
+
+                eCtx.strokeStyle = color.hsl;
+                eCtx.lineWidth = Math.max(3, intrinsicW / 280);
+                eCtx.strokeRect(x, y, w, h);
+
+                if (state.showLabels) {
+                    const fontSize = Math.max(14, Math.round(intrinsicW / 52));
+                    const label = `${pred.class.toUpperCase()} ${Math.round(pred.score * 100)}%`;
+                    eCtx.font = `700 ${fontSize}px sans-serif`;
+                    const tw = eCtx.measureText(label).width;
+                    const ph = fontSize + 10;
+                    const py = y - ph >= 0 ? y - ph : y;
+
+                    eCtx.fillStyle = color.hsl;
+                    eCtx.fillRect(x, py, tw + 14, ph);
+                    eCtx.fillStyle = '#060913';
+                    eCtx.fillText(label, x + 7, py + fontSize);
+                }
+            });
+
+            const link = document.createElement('a');
+            link.download = filename;
+            link.href = exportCanvas.toDataURL('image/png');
+            link.click();
+        }
+
+        // --- 10. UI EVENT LISTENERS ---
+        function setupEventListeners() {
+            // Mode Tabs
+            els.tabCamera.addEventListener('click', () => {
+                state.mode = 'camera';
+                els.tabCamera.className = 'px-3.5 py-2 rounded-lg text-xs sm:text-sm font-semibold bg-sky-600 text-white shadow transition flex items-center gap-2';
+                els.tabUpload.className = 'px-3.5 py-2 rounded-lg text-xs sm:text-sm font-semibold text-slate-400 hover:text-white hover:bg-slate-800/60 transition flex items-center gap-2';
+
+                els.cameraToolbar.classList.remove('hidden');
+                els.uploadToolbar.classList.add('hidden');
+                els.sampleScenesBar.classList.add('hidden');
+                els.sourceImg.classList.add('hidden');
+
+                if (!state.isCameraRunning) {
+                    els.emptyState.classList.remove('hidden');
+                    els.emptyIconCam.classList.remove('hidden');
+                    els.emptyIconImg.classList.add('hidden');
+                    els.emptyTitle.textContent = 'Camera Standby';
+                    els.emptyDesc.innerHTML = 'Click <strong class="text-emerald-400">Start Camera</strong> above once the COCO-SSD model is ready, or switch to <strong class="text-sky-400">Image Upload</strong>.';
+                    const { width, height } = syncCanvasResolution();
+                    ctx.clearRect(0, 0, width, height);
+                }
+            });
+
+            els.tabUpload.addEventListener('click', () => {
+                state.mode = 'upload';
+                stopCamera();
+                els.tabUpload.className = 'px-3.5 py-2 rounded-lg text-xs sm:text-sm font-semibold bg-sky-600 text-white shadow transition flex items-center gap-2';
+                els.tabCamera.className = 'px-3.5 py-2 rounded-lg text-xs sm:text-sm font-semibold text-slate-400 hover:text-white hover:bg-slate-800/60 transition flex items-center gap-2';
+
+                els.cameraToolbar.classList.add('hidden');
+                els.uploadToolbar.classList.remove('hidden');
+                els.sampleScenesBar.classList.remove('hidden');
+
+                if (els.sourceImg.src && els.sourceImg.src !== window.location.href) {
+                    els.sourceImg.classList.remove('hidden');
+                    els.emptyState.classList.add('hidden');
+                    detectOnStaticImage();
+                } else {
+                    els.emptyState.classList.remove('hidden');
+                    els.emptyIconCam.classList.add('hidden');
+                    els.emptyIconImg.classList.remove('hidden');
+                    els.emptyTitle.textContent = 'Upload or Drop an Image';
+                    els.emptyDesc.innerHTML = 'Drag & drop any photo here, click <strong class="text-sky-400">Choose Image</strong>, or test one of the offline sample scenes below.';
+                }
+            });
+
+            // Camera Buttons
+            els.btnToggleCam.addEventListener('click', () => {
+                if (state.isCameraRunning) stopCamera();
+                else startCamera();
+            });
+
+            els.btnSwitchCam.addEventListener('click', () => {
+                state.facingMode = state.facingMode === 'environment' ? 'user' : 'environment';
+                if (state.isCameraRunning) startCamera();
+            });
+
+            els.btnSnapshot.addEventListener('click', () => downloadAnnotatedPNG(`visiondetect-camera-${Date.now()}.png`));
+            els.btnDownloadImg.addEventListener('click', () => downloadAnnotatedPNG(`visiondetect-image-${Date.now()}.png`));
+
+            // File Upload Input
+            els.fileInput.addEventListener('change', (e) => {
+                const file = e.target.files?.[0];
+                if (!file) return;
+                const reader = new FileReader();
+                reader.onload = (ev) => loadImageSource(ev.target.result);
+                reader.readAsDataURL(file);
+            });
+
+            // Drag & Drop Support
+            els.stageContainer.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                els.dropOverlay.classList.remove('hidden');
+            });
+            els.stageContainer.addEventListener('dragleave', () => {
+                els.dropOverlay.classList.add('hidden');
+            });
+            els.stageContainer.addEventListener('drop', (e) => {
+                e.preventDefault();
+                els.dropOverlay.classList.add('hidden');
+                const file = e.dataTransfer?.files?.[0];
+                if (file && file.type.startsWith('image/')) {
+                    if (state.mode !== 'upload') els.tabUpload.click();
+                    const reader = new FileReader();
+                    reader.onload = (ev) => loadImageSource(ev.target.result);
+                    reader.readAsDataURL(file);
+                }
+            });
+
+            // Built-in Sample Scene Buttons
+            document.querySelectorAll('.sample-btn').forEach(btn => {
+                btn.addEventListener('click', () => {
+                    const dataUrl = generateOfflineSampleScene(btn.dataset.sample);
+                    loadImageSource(dataUrl);
+                });
+            });
+
+            // Model Backbone Reload
+            els.btnReloadModel.addEventListener('click', () => {
+                state.backbone = els.backboneSelect.value;
+                loadObjectDetectionModel();
+            });
+
+            // Sliders & Overlay Toggles (Live Re-rendering)
+            const rerenderCurrentFrame = () => {
+                const mediaEl = state.mode === 'camera' ? els.video : els.sourceImg;
+                if (!mediaEl.classList.contains('hidden')) {
+                    renderDetections(state.lastPredictions, mediaEl);
+                }
+            };
+
+            els.sliderConfidence.addEventListener('input', (e) => {
+                const val = parseInt(e.target.value, 10);
+                state.confidenceThreshold = val / 100;
+                els.valConfidence.textContent = `${val}%`;
+                rerenderCurrentFrame();
+            });
+
+            els.sliderMaxDet.addEventListener('input', (e) => {
+                const val = parseInt(e.target.value, 10);
+                state.maxDetections = val;
+                els.valMaxDet.textContent = val;
+                rerenderCurrentFrame();
+            });
+
+            els.chkLabels.addEventListener('change', (e) => {
+                state.showLabels = e.target.checked;
+                rerenderCurrentFrame();
+            });
+
+            els.chkBrackets.addEventListener('change', (e) => {
+                state.hudBrackets = e.target.checked;
+                rerenderCurrentFrame();
+            });
+
+            els.chkVoice.addEventListener('change', (e) => {
+                state.voiceEnabled = e.target.checked;
+                if (!state.voiceEnabled && 'speechSynthesis' in window) {
+                    window.speechSynthesis.cancel();
+                }
+            });
+
+            els.btnCloseAlert.addEventListener('click', hideError);
+
+            // Re-align canvas bounding boxes on viewport resize or orientation change
+            window.addEventListener('resize', () => {
+                rerenderCurrentFrame();
+            });
+        }
+
+        // Initialize on Window Load
+        window.onload = () => {
+            setupEventListeners();
+            syncCanvasResolution();
+            loadObjectDetectionModel();
+        };
+    </script>
+</body>
+</html>
